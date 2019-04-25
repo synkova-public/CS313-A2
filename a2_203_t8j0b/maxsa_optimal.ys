@@ -1,0 +1,157 @@
+.pos 0x100
+main:
+    irmovq $stackEnd, %rsp     # load the stack pointer
+    irmovq $arraySize, %rsi    # pointer to the array size is loaded into %rsi;
+    irmovq $array, %rdi        # pointer to the array is loaded into %rdi; parameter: long* array
+    irmovq $resultStart, %rdx  # pointer to the resultStart is loaded into %rdx; parameter: long **sa_start
+    irmovq $resultEnd, %rcx    # pointer to the resultEnd is loaded into %rcx; parameter: long **sa_end
+    mrmovq (%rsi), %rsi        # the size of the array is loaded into %rsi; parameter: long size
+    call   maxSubArray         # call the function maxSubArray
+    irmovq $resultSum, %r8     # pointer to the final sum is loaded into %r8
+    rmmovq %rax, (%r8)         # save the return value at the address of the sum; return bestsum
+    halt                       # stop the main function
+
+.pos 0x1000
+maxSubArray:
+    irmovq $1, %r9             # R[%r9] = 1; will be used in the first if comparison
+    pushq  %r12                # save %r12 onto the stack (callee-save), used to work with arguments
+    pushq  %r13                # save %r13 onto the stack (callee-save), used to work with arguments
+    pushq  %r14                # save %r14 onto the stack (callee-save), used to work with arguments
+    subq   %rsi, %r9           # subtract the size of the array from 1
+    jne    L1                  # if (array size != 1), jump to L1
+    rmmovq %rdi, (%rcx)        # otherwise, store the pointer to the array in *sa_end
+    rmmovq %rdi, (%rdx)        # store the pointer to the array in *sa_start, so *sa_start = *sa_end = array;
+    mrmovq (%rdi), %r13        # save the value of the array element (the only one) into %r13
+    jmp    L9                  # jump to L9 (return statement)
+L1:
+    pushq  %rbx                # save %rbx onto the stack (callee-save), used to work with arguments
+    pushq  %rbp                # save %rbp onto the stack (callee-save), used to work with arguments
+    rrmovq %rsi, %rbx          # the array size is copied to %rbx, to perform operations without changing it
+    irmovq $2, %r10            # R[%r10] = 2; will be used in dividing the size by 2 to find half
+    irmovq $8, %r8             # R[%r8] = 8; used in pointer arithmetics
+    irmovq $8, %rbp            # R[%rbp] = 8; used in pointer arithmetics
+    rrmovq %rsi, %r9           # the array size is copied to %r9, to perform operations without changing it
+    divq   %r10, %rbx          # half = size >> 1;
+    xorq   %rax, %rax          # set return value to 0 (in this case sum)
+    irmovq $0x8000000000000000, %r10  # R[%r10] = 0x8000000000000000; used later as leftsum = LONG_MIN
+    mulq   %rbx, %rbp          # half * 8; used in pointer arithmetics
+    mulq   %r8, %r9            # get how many bytes the size is; used in pointer arithmetics
+    addq   %rdi, %rbp          # mid = array + half => array + half * 8; get back the pointer the middle array elmnt
+    addq   %rdi, %r9           # this and next instructions produce: end = array + size - 1, since it is pointer arithmetics
+    rrmovq %rbp, %r11          # copy the mid pointer to %r11, to perform operations without changing it
+    subq   %r8, %r9            # we add the size multiplied by the size of a long and then subtract 1 long from it
+    subq   %r8, %r11           # ptr = mid - 1; find the initial value for the for loop
+
+L2:
+    mrmovq (%r11), %r12        # save the value stored at the address in ptr (%r11) to the %r12; will be used in sum += *ptr
+    addq   %r12, %rax          # sum += *ptr
+    rrmovq %rax, %r12          # move pointer to sum to %r12
+    subq   %r10, %r12          # subtract value in %r10 (leftsum) from sum; to be used in sum > leftsum
+    jle    L3                  # jump to L3 if sum <= leftsum
+    rrmovq %rax, %r10          # leftsum = sum;
+    rmmovq %r11, (%rdx)        # *sa_start = ptr;
+L3:
+    subq   %r8, %r11           # decrement ptr by 1; (ptr - 1*8), since working with longs
+    rrmovq %r11, %r12          # store the value obtained for ptr in %r12; used as a local value
+    subq   %rdi, %r12          # subtract the array from ptr; used for the ptr >= array as a loop condition
+    jge    L2                  # jump to L2; start the new loop iteration
+
+    rrmovq %rbp, %r11          # copy the (original) mid pointer to %r11, to perform operations without changing it
+    xorq   %rax, %rax          # set return value to 0 (in this case sum), initialize
+    irmovq $0x8000000000000000, %r13  # R[%r13] = 0x8000000000000000; used later as rightsum = LONG_MIN
+L5:
+    mrmovq (%r11), %r12        # save the value stored at the address in ptr (%r11) to the %r12; will be used in sum += *ptr
+    addq   %r12, %rax          # sum += *ptr
+    rrmovq %rax, %r12          # move pointer to sum to %r12
+    subq   %r13, %r12          # subtract value in %r10 (rightsum) from sum; to be used in sum > rightsum
+    jle    L6                  # jump to L6 if sum <= rightsum
+    rrmovq %rax, %r13          # rightsum = sum;
+    rmmovq %r11, (%rcx)        # *sa_end = ptr;
+L6:
+    addq   %r8, %r11           # increment ptr by 1; (ptr + 1*8), since working with longs
+    rrmovq %r11, %r12          # store the value obtained for ptr in %r12; used as a local value
+    subq   %r9, %r12           # subtract the end from ptr; used for the ptr <= end as a loop condition
+    jle    L5                  # jump to L5; start the new loop iteration
+
+    rrmovq %rsi, %r9           # the array size is copied to %r9, to perform operations without changing it
+    rrmovq %rdx, %r12          # sa_start is copied to %r12, to perform operations without changing it (sub_start)
+    addq   %r10, %r13          # bestsum = leftsum + rightsum; %r13 is used for bestsum now
+    subq   %rbx, %r9           # subtract the half from the array size, used in second recursive call
+    rrmovq %rcx, %r14          # sa_end is copied to %r14, to perform operations without changing it (sub_end)
+    rrmovq %rbx, %rsi          # save half into the register storing the array size
+    rrmovq %r9, %rbx           # store size - half into %rbx
+    pushq  %rdx                # save sa_start onto the stack (caller-save)
+    rrmovq %rsp, %rdx          # move current stack pointer to %rdx
+    pushq  %rcx                # save sa_end onto the stack (caller-save)
+    rrmovq %rsp, %rcx          # move current stack pointer to %rcx
+    call   maxSubArray         # call maxSubArray, recursive call
+    rrmovq %rax, %r9           # move sum to %r9
+    popq   %rcx                # retrieve the value of %rcx from stack
+    popq   %rdx                # retrieve the value of %rcx from stack
+    subq   %r13, %r9           # subtract bestsum from sum; used in the if condition
+    jle    L8                  # if sum is smaller than bestsum, jump to L8
+    rrmovq %rax, %r13          # otherwise, bestsum = sum
+    rmmovq %rdx, (%r12)        # *sa_start = sub_start
+    rmmovq %rcx, (%r14)        # *sa_end = sub_end
+L8:
+    rrmovq %rbp, %rdi          # move mid to the array register; is passed instead of the array in the recursive call
+    rrmovq %rbx, %rsi          # pass size - half to the size register
+    pushq  %rdx                # save sa_start onto the stack (caller-save)
+    rrmovq %rsp, %rdx          # move current stack pointer to %rdx
+    pushq  %rcx                # save sa_end onto the stack (caller-save)
+    rrmovq %rsp, %rcx          # move current stack pointer to %rcx
+    call   maxSubArray         # call maxSubArray, recursive call
+    rrmovq %rax, %r9           # move sum to %r9
+    popq   %rcx                # retrieve the value of %rcx from stack
+    popq   %rdx                # retrieve the value of %rcx from stack
+    subq   %r13, %r9           # subtract bestsum from sum; used in the if condition
+    popq   %rbp              # restore %rbp from stack (callee-save)
+    popq   %rbx              # restore %rbx from stack (callee-save)
+    jle    L9                  # if sum is smaller than bestsum, jump to L9 (return bestsum)
+    rrmovq %rax, %r13          # otherwise, bestsum = sum
+    rmmovq %rdx, (%r12)        # *sa_start = sub_start
+    rmmovq %rcx, (%r14)        # *sa_end = sub_end
+
+
+L9:
+    rrmovq %r13, %rax        # save the result found (either bestsum or the only array value) as a return value
+    popq   %r14              # restore %r14 from stack (callee-save)
+    popq   %r13              # restore %r13 from stack (callee-save)
+    popq   %r12              # restore %r12 from stack (callee-save)
+    ret                      # return statement; function terminates
+
+
+.pos 0x2000
+array:
+    .quad 13
+    .quad -3
+    .quad -25
+    .quad -20
+    .quad -3
+    .quad -16
+    .quad -23
+    .quad 18
+    .quad 20
+    .quad -7
+    .quad 12
+    .quad -5
+    .quad -22
+    .quad 15
+    .quad -4
+    .quad 7
+arraySize:
+    .quad 16
+
+.pos 0x2500
+resultStart:
+    .quad 0
+resultEnd:
+    .quad 0
+resultSum:
+    .quad 0
+
+.pos 0x4000
+stack:
+    .quad 0, 1000
+stackEnd:
+    .quad 0
